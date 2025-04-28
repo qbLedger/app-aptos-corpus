@@ -1,0 +1,665 @@
+buffer_can_read:
+   28|    292|{
+   29|    292|    return buffer->size - buffer->offset >= n;
+   30|    292|}
+buffer_seek_cur:
+   44|    273|{
+   45|    273|    if (buffer->offset + offset < buffer->offset ||  // overflow
+  ------------------
+  |  Branch (45:9): [True: 0, False: 273]
+  ------------------
+   46|    273|        buffer->offset + offset > buffer->size) {    // exceed buffer size
+  ------------------
+  |  Branch (46:9): [True: 0, False: 273]
+  ------------------
+   47|      0|        return false;
+   48|      0|    }
+   49|       |
+   50|    273|    buffer->offset += offset;
+   51|       |
+   52|    273|    return true;
+   53|    273|}
+buffer_read_u8:
+   67|     96|{
+   68|     96|    if (!buffer_can_read(buffer, 1)) {
+  ------------------
+  |  Branch (68:9): [True: 5, False: 91]
+  ------------------
+   69|      5|        *value = 0;
+   70|       |
+   71|      5|        return false;
+   72|      5|    }
+   73|       |
+   74|     91|    *value = buffer->ptr[buffer->offset];
+   75|     91|    buffer_seek_cur(buffer, 1);
+   76|       |
+   77|     91|    return true;
+   78|     96|}
+buffer_read_u64:
+  113|     97|{
+  114|     97|    if (!buffer_can_read(buffer, 8)) {
+  ------------------
+  |  Branch (114:9): [True: 1, False: 96]
+  ------------------
+  115|      1|        *value = 0;
+  116|       |
+  117|      1|        return false;
+  118|      1|    }
+  119|       |
+  120|     96|    *value = ((endianness == BE) ? read_u64_be(buffer->ptr, buffer->offset)
+  ------------------
+  |  Branch (120:15): [True: 0, False: 96]
+  ------------------
+  121|     96|                                 : read_u64_le(buffer->ptr, buffer->offset));
+  122|       |
+  123|     96|    buffer_seek_cur(buffer, 8);
+  124|       |
+  125|     96|    return true;
+  126|     97|}
+
+read_u64_le:
+   61|     96|{
+   62|     96|    return (uint64_t) ptr[offset + 0] << 0 |   //
+   63|     96|           (uint64_t) ptr[offset + 1] << 8 |   //
+   64|     96|           (uint64_t) ptr[offset + 2] << 16 |  //
+   65|     96|           (uint64_t) ptr[offset + 3] << 24 |  //
+   66|     96|           (uint64_t) ptr[offset + 4] << 32 |  //
+   67|     96|           (uint64_t) ptr[offset + 5] << 40 |  //
+   68|     96|           (uint64_t) ptr[offset + 6] << 48 |  //
+   69|     96|           (uint64_t) ptr[offset + 7] << 56;
+   70|     96|}
+
+LLVMFuzzerTestOneInput:
+   17|     39|extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+   18|     39|    buffer_t buf = {.ptr = data, .size = size, .offset = 0};
+   19|     39|    transaction_t tx;
+   20|     39|    parser_status_e status;
+   21|     39|    char sender[65] = {0};
+   22|       |
+   23|     39|    transaction_init(&tx);
+   24|     39|    status = transaction_deserialize(&buf, &tx);
+   25|       |
+   26|     39|    if (DEBUG && status == PARSING_OK && tx.tx_variant == TX_RAW &&
+  ------------------
+  |  |   15|     78|#define DEBUG 0
+  |  |  ------------------
+  |  |  |  Branch (15:15): [Folded - Ignored]
+  |  |  ------------------
+  ------------------
+  |  Branch (26:18): [True: 0, False: 0]
+  |  Branch (26:42): [True: 0, False: 0]
+  ------------------
+   27|     39|        tx.payload_variant == PAYLOAD_ENTRY_FUNCTION) {
+  ------------------
+  |  Branch (27:9): [True: 0, False: 0]
+  ------------------
+   28|      0|        printf("\nTransaction size: %lu\n", size);
+   29|      0|        printf("chain_id: %d\n", tx.chain_id);
+   30|      0|        printf("sequence: %lu\n", tx.sequence);
+   31|      0|        printf("gas_unit_price: %lu\n", tx.gas_unit_price);
+   32|      0|        printf("max_gas_amount: %lu\n", tx.max_gas_amount);
+   33|      0|        printf("expiration_timestamp_secs: %lu\n", tx.expiration_timestamp_secs);
+   34|      0|        format_hex(tx.sender, ADDRESS_LEN, sender, sizeof(sender));
+  ------------------
+  |  |   11|      0|#define ADDRESS_LEN 32
+  ------------------
+   35|      0|        printf("sender: %s\n", sender);
+   36|      0|        printf("payload_variant: %d\n", tx.payload_variant);
+   37|      0|        printf("entry_function.known_type: %d\n", tx.payload.entry_function.known_type);
+   38|      0|    }
+   39|       |
+   40|     39|    return 0;
+   41|     39|}
+
+bcs_read_u8:
+   26|     24|bool bcs_read_u8(buffer_t *buffer, uint8_t *value) {
+   27|     24|    return buffer_read_u8(buffer, value);
+   28|     24|}
+bcs_read_u64:
+   38|     97|bool bcs_read_u64(buffer_t *buffer, uint64_t *value) {
+   39|     97|    return buffer_read_u64(buffer, value, LE);
+   40|     97|}
+bcs_read_u32_from_uleb128:
+  106|     48|bool bcs_read_u32_from_uleb128(buffer_t *buffer, uint32_t *value) {
+  107|     48|    uint64_t tmp_value = 0;
+  108|     48|    uint8_t tmp_byte = 0;
+  109|     48|    int digit;
+  110|     73|    for (int shift = 0; shift < 32; shift += 7) {
+  ------------------
+  |  Branch (110:25): [True: 72, False: 1]
+  ------------------
+  111|     72|        if (!buffer_read_u8(buffer, &tmp_byte)) {
+  ------------------
+  |  Branch (111:13): [True: 5, False: 67]
+  ------------------
+  112|      5|            return false;
+  113|      5|        }
+  114|     67|        digit = tmp_byte & 0x7F;
+  115|     67|        tmp_value |= (uint64_t) digit << shift;
+  116|     67|        if (tmp_value > UINT32_MAX) {
+  ------------------
+  |  Branch (116:13): [True: 1, False: 66]
+  ------------------
+  117|       |            // Overflow while parsing uleb128-encoded uint32 value
+  118|      1|            return false;
+  119|      1|        }
+  120|     66|        if (digit == tmp_byte) {
+  ------------------
+  |  Branch (120:13): [True: 41, False: 25]
+  ------------------
+  121|     41|            if (shift > 0 && digit == 0) {
+  ------------------
+  |  Branch (121:17): [True: 6, False: 35]
+  |  Branch (121:30): [True: 2, False: 4]
+  ------------------
+  122|       |                // Invalid uleb128 number (unexpected zero digit)
+  123|      2|                return false;
+  124|      2|            }
+  125|     39|            *value = (uint32_t) tmp_value;
+  126|     39|            return true;
+  127|     41|        }
+  128|     66|    }
+  129|       |    // Overflow while parsing uleb128-encoded uint32 value
+  130|      1|    return false;
+  131|     48|}
+bcs_read_fixed_bytes:
+  177|     40|bool bcs_read_fixed_bytes(buffer_t *buffer, uint8_t *out, size_t size) {
+  178|     40|    if (!buffer_can_read(buffer, size)) {
+  ------------------
+  |  Branch (178:9): [True: 2, False: 38]
+  ------------------
+  179|      2|        return false;
+  180|      2|    }
+  181|       |
+  182|     38|    memmove(out, buffer->ptr + buffer->offset, size);
+  183|     38|    return buffer_seek_cur(buffer, size);
+  184|     40|}
+bcs_read_ptr_to_fixed_bytes:
+  186|     59|bool bcs_read_ptr_to_fixed_bytes(buffer_t *buffer, uint8_t **out, size_t size) {
+  187|     59|    if (!buffer_can_read(buffer, size)) {
+  ------------------
+  |  Branch (187:9): [True: 11, False: 48]
+  ------------------
+  188|     11|        return false;
+  189|     11|    }
+  190|       |
+  191|     48|    *out = (uint8_t *) buffer->ptr + buffer->offset;
+  192|     48|    return buffer_seek_cur(buffer, size);
+  193|     59|}
+
+fixed_bytes_init:
+   19|     28|void fixed_bytes_init(fixed_bytes_t *fixed_bytes) {
+   20|     28|    fixed_bytes->bytes = NULL;
+   21|     28|    fixed_bytes->len = 0;
+   22|     28|}
+module_id_init:
+   24|     14|void module_id_init(module_id_t *module_id) {
+   25|     14|    memset(module_id->address, 0, ADDRESS_LEN);
+  ------------------
+  |  |   11|     14|#define ADDRESS_LEN 32
+  ------------------
+   26|     14|    fixed_bytes_init(&module_id->name);
+   27|     14|}
+entry_function_payload_init:
+   29|     14|void entry_function_payload_init(entry_function_payload_t *payload) {
+   30|     14|    module_id_init(&payload->module_id);
+   31|     14|    fixed_bytes_init(&payload->function_name);
+   32|     14|    payload->known_type = FUNC_UNKNOWN;
+   33|     14|    payload->args.ty_size = 0;
+   34|     14|    payload->args.args_size = 0;
+   35|     14|}
+transaction_init:
+   45|     77|void transaction_init(aptos_transaction_t *tx) {
+   46|     77|    memset(tx->sender, 0, ADDRESS_LEN);
+  ------------------
+  |  |   11|     77|#define ADDRESS_LEN 32
+  ------------------
+   47|     77|    tx->tx_variant = TX_UNDEFINED;
+   48|     77|    tx->sequence = 0;
+   49|     77|    tx->payload_variant = PAYLOAD_UNDEFINED;
+   50|     77|    tx->max_gas_amount = 0;
+   51|     77|    tx->gas_unit_price = 0;
+   52|     77|    tx->expiration_timestamp_secs = 0;
+   53|     77|    tx->chain_id = 0;
+   54|     77|}
+
+transaction_deserialize:
+   12|     39|parser_status_e transaction_deserialize(buffer_t *buf, transaction_t *tx) {
+   13|     39|    if (buf->size > MAX_TRANSACTION_LEN) {
+  ------------------
+  |  |   33|     39|#define MAX_TRANSACTION_LEN (MAX_TRANSACTION_PACKETS * 255)
+  |  |  ------------------
+  |  |  |  |   27|     39|#define MAX_TRANSACTION_PACKETS 2
+  |  |  ------------------
+  ------------------
+  |  Branch (13:9): [True: 1, False: 38]
+  ------------------
+   14|      1|        return WRONG_LENGTH_ERROR;
+   15|      1|    }
+   16|     38|    transaction_init(tx);
+   17|       |
+   18|     38|    parser_status_e tx_variant_parsing_status = tx_variant_deserialize(buf, tx);
+   19|     38|    if (tx_variant_parsing_status != PARSING_OK) {
+  ------------------
+  |  Branch (19:9): [True: 0, False: 38]
+  ------------------
+   20|      0|        return tx_variant_parsing_status;
+   21|      0|    }
+   22|       |
+   23|     38|    switch (tx->tx_variant) {
+   24|     26|        case TX_RAW:
+  ------------------
+  |  Branch (24:9): [True: 26, False: 12]
+  ------------------
+   25|     26|            return tx_raw_deserialize(buf, tx);
+   26|      1|        case TX_RAW_WITH_DATA:
+  ------------------
+  |  Branch (26:9): [True: 1, False: 37]
+  ------------------
+   27|      1|            break;
+   28|      1|        case TX_RAW_MESSAGE:
+  ------------------
+  |  Branch (28:9): [True: 1, False: 37]
+  ------------------
+   29|      1|            break;  // Since the raw message is processed before display without direct transaction
+   30|       |                    // buffer reads, null-termination concerns are mitigated.
+   31|     10|        case TX_MESSAGE:
+  ------------------
+  |  Branch (31:9): [True: 10, False: 28]
+  ------------------
+   32|       |            // To make sure the message is a null-terminated string
+   33|     10|            if (buf->size == MAX_TRANSACTION_LEN && buf->ptr[MAX_TRANSACTION_LEN - 1] != 0) {
+  ------------------
+  |  |   33|     20|#define MAX_TRANSACTION_LEN (MAX_TRANSACTION_PACKETS * 255)
+  |  |  ------------------
+  |  |  |  |   27|     10|#define MAX_TRANSACTION_PACKETS 2
+  |  |  ------------------
+  ------------------
+                          if (buf->size == MAX_TRANSACTION_LEN && buf->ptr[MAX_TRANSACTION_LEN - 1] != 0) {
+  ------------------
+  |  |   33|      2|#define MAX_TRANSACTION_LEN (MAX_TRANSACTION_PACKETS * 255)
+  |  |  ------------------
+  |  |  |  |   27|      2|#define MAX_TRANSACTION_PACKETS 2
+  |  |  ------------------
+  ------------------
+  |  Branch (33:17): [True: 2, False: 8]
+  |  Branch (33:53): [True: 1, False: 1]
+  ------------------
+   34|      1|                return WRONG_LENGTH_ERROR;
+   35|      1|            }
+   36|       |
+   37|      9|            __attribute__((fallthrough));
+   38|      9|        default:
+  ------------------
+  |  Branch (38:9): [True: 0, False: 38]
+  ------------------
+   39|      9|            break;
+   40|     38|    }
+   41|       |
+   42|     11|    return PARSING_OK;
+   43|     38|}
+tx_raw_deserialize:
+   45|     26|parser_status_e tx_raw_deserialize(buffer_t *buf, transaction_t *tx) {
+   46|     26|    if (tx->tx_variant != TX_RAW) {
+  ------------------
+  |  Branch (46:9): [True: 0, False: 26]
+  ------------------
+   47|      0|        return TX_VARIANT_UNDEFINED_ERROR;
+   48|      0|    }
+   49|       |
+   50|       |    // read sender address
+   51|     26|    if (!bcs_read_fixed_bytes(buf, (uint8_t *) &tx->sender, ADDRESS_LEN)) {
+  ------------------
+  |  |   11|     26|#define ADDRESS_LEN 32
+  ------------------
+  |  Branch (51:9): [True: 1, False: 25]
+  ------------------
+   52|      1|        return SENDER_READ_ERROR;
+   53|      1|    }
+   54|       |    // read sequence
+   55|     25|    if (!bcs_read_u64(buf, &tx->sequence)) {
+  ------------------
+  |  Branch (55:9): [True: 1, False: 24]
+  ------------------
+   56|      1|        return SEQUENCE_READ_ERROR;
+   57|      1|    }
+   58|       |
+   59|     24|    const size_t buf_footer_begin = buf->size - TX_FOOTER_LEN;
+  ------------------
+  |  |   22|     24|#define TX_FOOTER_LEN 25
+  ------------------
+   60|     24|    buffer_t buf_footer = {.ptr = buf->ptr, .size = buf->size, .offset = buf_footer_begin};
+   61|       |    // read max_gas_amount
+   62|     24|    if (!bcs_read_u64(&buf_footer, &tx->max_gas_amount)) {
+  ------------------
+  |  Branch (62:9): [True: 0, False: 24]
+  ------------------
+   63|      0|        return MAX_GAS_READ_ERROR;
+   64|      0|    }
+   65|       |    // read gas_unit_price
+   66|     24|    if (!bcs_read_u64(&buf_footer, &tx->gas_unit_price)) {
+  ------------------
+  |  Branch (66:9): [True: 0, False: 24]
+  ------------------
+   67|      0|        return GAS_UNIT_PRICE_READ_ERROR;
+   68|      0|    }
+   69|       |    // read expiration_timestamp_secs
+   70|     24|    if (!bcs_read_u64(&buf_footer, &tx->expiration_timestamp_secs)) {
+  ------------------
+  |  Branch (70:9): [True: 0, False: 24]
+  ------------------
+   71|      0|        return EXPIRATION_READ_ERROR;
+   72|      0|    }
+   73|       |    // read chain_id
+   74|     24|    if (!bcs_read_u8(&buf_footer, &tx->chain_id)) {
+  ------------------
+  |  Branch (74:9): [True: 0, False: 24]
+  ------------------
+   75|      0|        return CHAIN_ID_READ_ERROR;
+   76|      0|    }
+   77|       |
+   78|       |    // read payload_variant
+   79|     24|    uint32_t payload_variant = PAYLOAD_UNDEFINED;
+   80|     24|    if (!bcs_read_u32_from_uleb128(buf, &payload_variant)) {
+  ------------------
+  |  Branch (80:9): [True: 6, False: 18]
+  ------------------
+   81|      6|        return PAYLOAD_VARIANT_READ_ERROR;
+   82|      6|    }
+   83|     18|    if (payload_variant != PAYLOAD_ENTRY_FUNCTION && payload_variant != PAYLOAD_SCRIPT &&
+  ------------------
+  |  Branch (83:9): [True: 4, False: 14]
+  |  Branch (83:54): [True: 3, False: 1]
+  ------------------
+   84|     18|        payload_variant != PAYLOAD_MULTISIG) {
+  ------------------
+  |  Branch (84:9): [True: 2, False: 1]
+  ------------------
+   85|      2|        return PAYLOAD_UNDEFINED_ERROR;
+   86|      2|    }
+   87|     16|    tx->payload_variant = payload_variant;
+   88|       |
+   89|     16|    parser_status_e payload_parsing_status = 0;
+   90|     16|    switch (tx->payload_variant) {
+   91|     14|        case PAYLOAD_ENTRY_FUNCTION:
+  ------------------
+  |  Branch (91:9): [True: 14, False: 2]
+  ------------------
+   92|     14|            payload_parsing_status = entry_function_payload_deserialize(buf, tx);
+   93|     14|            if (payload_parsing_status != PARSING_OK) {
+  ------------------
+  |  Branch (93:17): [True: 8, False: 6]
+  ------------------
+   94|      8|                return payload_parsing_status;
+   95|      8|            }
+   96|      6|            if (tx->payload.entry_function.known_type == FUNC_APTOS_ACCOUNT_TRANSFER) {
+  ------------------
+  |  Branch (96:17): [True: 0, False: 6]
+  ------------------
+   97|      0|                return (buf->offset == buf_footer_begin) ? PARSING_OK : WRONG_LENGTH_ERROR;
+  ------------------
+  |  Branch (97:24): [True: 0, False: 0]
+  ------------------
+   98|      0|            }
+   99|      6|            return PARSING_OK;
+  100|      1|        case PAYLOAD_SCRIPT:
+  ------------------
+  |  Branch (100:9): [True: 1, False: 15]
+  ------------------
+  101|       |            // TODO: implement script fields parsing
+  102|      1|            return PARSING_OK;
+  103|      1|        case PAYLOAD_MULTISIG:
+  ------------------
+  |  Branch (103:9): [True: 1, False: 15]
+  ------------------
+  104|       |            // TODO: implement multisig fields parsing
+  105|      1|            return PARSING_OK;
+  106|      0|        default:
+  ------------------
+  |  Branch (106:9): [True: 0, False: 16]
+  ------------------
+  107|      0|            return PAYLOAD_UNDEFINED_ERROR;
+  108|     16|    }
+  109|       |
+  110|      0|    return PARSING_OK;
+  111|     16|}
+tx_variant_deserialize:
+  113|     38|parser_status_e tx_variant_deserialize(buffer_t *buf, transaction_t *tx) {
+  114|     38|    if (buf->offset != 0) {
+  ------------------
+  |  Branch (114:9): [True: 0, False: 38]
+  ------------------
+  115|      0|        return TX_VARIANT_READ_ERROR;
+  116|      0|    }
+  117|       |
+  118|     38|    tx->tx_variant = TX_UNDEFINED;
+  119|       |
+  120|     38|    uint8_t *prefix;
+  121|       |    // read hashed prefix bytes
+  122|     38|    if (bcs_read_ptr_to_fixed_bytes(buf, &prefix, TX_HASHED_PREFIX_LEN)) {
+  ------------------
+  |  |   19|     38|#define TX_HASHED_PREFIX_LEN 32
+  ------------------
+  |  Branch (122:9): [True: 31, False: 7]
+  ------------------
+  123|     31|        if (memcmp(prefix, PREFIX_RAW_TX_WITH_DATA_HASHED, TX_HASHED_PREFIX_LEN) == 0) {
+  ------------------
+  |  |   19|     31|#define TX_HASHED_PREFIX_LEN 32
+  ------------------
+  |  Branch (123:13): [True: 1, False: 30]
+  ------------------
+  124|      1|            tx->tx_variant = TX_RAW_WITH_DATA;
+  125|      1|            return PARSING_OK;
+  126|      1|        }
+  127|       |
+  128|     30|        if (memcmp(prefix, PREFIX_RAW_TX_HASHED, TX_HASHED_PREFIX_LEN) == 0) {
+  ------------------
+  |  |   19|     30|#define TX_HASHED_PREFIX_LEN 32
+  ------------------
+  |  Branch (128:13): [True: 26, False: 4]
+  ------------------
+  129|     26|            tx->tx_variant = TX_RAW;
+  130|     26|            return PARSING_OK;
+  131|     26|        }
+  132|     30|    }
+  133|       |
+  134|       |    // Not a transaction prefix, so we reset the offer to consider the full message
+  135|     11|    buf->offset = 0;
+  136|       |
+  137|       |    // Try to display the message as UTF8 if possible
+  138|     11|    tx->tx_variant =
+  139|     11|        transaction_utils_check_encoding(buf->ptr, buf->size) ? TX_MESSAGE : TX_RAW_MESSAGE;
+  ------------------
+  |  Branch (139:9): [True: 10, False: 1]
+  ------------------
+  140|       |
+  141|     11|    return PARSING_OK;
+  142|     38|}
+entry_function_payload_deserialize:
+  144|     14|parser_status_e entry_function_payload_deserialize(buffer_t *buf, transaction_t *tx) {
+  145|     14|    if (tx->payload_variant != PAYLOAD_ENTRY_FUNCTION) {
+  ------------------
+  |  Branch (145:9): [True: 0, False: 14]
+  ------------------
+  146|      0|        return PAYLOAD_UNDEFINED_ERROR;
+  147|      0|    }
+  148|     14|    entry_function_payload_t *payload = &tx->payload.entry_function;
+  149|     14|    entry_function_payload_init(payload);
+  150|       |
+  151|       |    // read module id address field
+  152|     14|    if (!bcs_read_fixed_bytes(buf,
+  ------------------
+  |  Branch (152:9): [True: 1, False: 13]
+  ------------------
+  153|     14|                              (uint8_t *) payload->module_id.address,
+  154|     14|                              sizeof payload->module_id.address)) {
+  155|      1|        return MODULE_ID_ADDR_READ_ERROR;
+  156|      1|    }
+  157|       |    // read module_id name len field
+  158|     13|    if (!bcs_read_u32_from_uleb128(buf, (uint32_t *) &payload->module_id.name.len)) {
+  ------------------
+  |  Branch (158:9): [True: 1, False: 12]
+  ------------------
+  159|      1|        return MODULE_ID_NAME_LEN_READ_ERROR;
+  160|      1|    }
+  161|       |    //  read module_id name bytes field
+  162|     12|    if (!bcs_read_ptr_to_fixed_bytes(buf,
+  ------------------
+  |  Branch (162:9): [True: 1, False: 11]
+  ------------------
+  163|     12|                                     &payload->module_id.name.bytes,
+  164|     12|                                     payload->module_id.name.len)) {
+  165|      1|        return MODULE_ID_NAME_BYTES_READ_ERROR;
+  166|      1|    }
+  167|       |    // read function_name len field
+  168|     11|    if (!bcs_read_u32_from_uleb128(buf, (uint32_t *) &payload->function_name.len)) {
+  ------------------
+  |  Branch (168:9): [True: 2, False: 9]
+  ------------------
+  169|      2|        return FUNCTION_NAME_LEN_READ_ERROR;
+  170|      2|    }
+  171|       |    // read function_name bytes field
+  172|      9|    if (!bcs_read_ptr_to_fixed_bytes(buf,
+  ------------------
+  |  Branch (172:9): [True: 3, False: 6]
+  ------------------
+  173|      9|                                     &payload->function_name.bytes,
+  174|      9|                                     payload->function_name.len)) {
+  175|      3|        return FUNCTION_NAME_BYTES_READ_ERROR;
+  176|      3|    }
+  177|       |
+  178|      6|    payload->known_type = determine_function_type(tx);
+  179|      6|    switch (payload->known_type) {
+  180|      0|        case FUNC_APTOS_ACCOUNT_TRANSFER:
+  ------------------
+  |  Branch (180:9): [True: 0, False: 6]
+  ------------------
+  181|      0|            return aptos_account_transfer_function_deserialize(buf, tx);
+  182|      0|        case FUNC_COIN_TRANSFER:
+  ------------------
+  |  Branch (182:9): [True: 0, False: 6]
+  ------------------
+  183|      0|        case FUNC_APTOS_ACCOUNT_TRANSFER_COINS:
+  ------------------
+  |  Branch (183:9): [True: 0, False: 6]
+  ------------------
+  184|      0|            return coin_transfer_function_deserialize(buf, tx);
+  185|      0|        case FUNC_FUNGIBLE_STORE_TRANSFER:
+  ------------------
+  |  Branch (185:9): [True: 0, False: 6]
+  ------------------
+  186|      0|            return fa_transfer_function_deserialize(buf, tx);
+  187|      6|        default:
+  ------------------
+  |  Branch (187:9): [True: 6, False: 0]
+  ------------------
+  188|      6|            return PARSING_OK;
+  189|      6|    }
+  190|       |
+  191|      0|    return PARSING_OK;
+  192|      6|}
+determine_function_type:
+  453|      6|entry_function_known_type_t determine_function_type(transaction_t *tx) {
+  454|      6|    if (tx->payload_variant != PAYLOAD_ENTRY_FUNCTION) {
+  ------------------
+  |  Branch (454:9): [True: 0, False: 6]
+  ------------------
+  455|      0|        return FUNC_UNKNOWN;
+  456|      0|    }
+  457|       |
+  458|      6|    if (tx->payload.entry_function.module_id.address[ADDRESS_LEN - 1] == 0x01 &&
+  ------------------
+  |  |   11|      6|#define ADDRESS_LEN 32
+  ------------------
+  |  Branch (458:9): [True: 5, False: 1]
+  ------------------
+  459|      6|        bcs_cmp_bytes(&tx->payload.entry_function.module_id.name, "aptos_account", 13) &&
+  ------------------
+  |  Branch (459:9): [True: 1, False: 4]
+  ------------------
+  460|      6|        bcs_cmp_bytes(&tx->payload.entry_function.function_name, "transfer", 8)) {
+  ------------------
+  |  Branch (460:9): [True: 0, False: 1]
+  ------------------
+  461|      0|        return FUNC_APTOS_ACCOUNT_TRANSFER;
+  462|      0|    }
+  463|       |
+  464|      6|    if (tx->payload.entry_function.module_id.address[ADDRESS_LEN - 1] == 0x01 &&
+  ------------------
+  |  |   11|      6|#define ADDRESS_LEN 32
+  ------------------
+  |  Branch (464:9): [True: 5, False: 1]
+  ------------------
+  465|      6|        bcs_cmp_bytes(&tx->payload.entry_function.module_id.name, "coin", 4) &&
+  ------------------
+  |  Branch (465:9): [True: 0, False: 5]
+  ------------------
+  466|      6|        bcs_cmp_bytes(&tx->payload.entry_function.function_name, "transfer", 8)) {
+  ------------------
+  |  Branch (466:9): [True: 0, False: 0]
+  ------------------
+  467|      0|        return FUNC_COIN_TRANSFER;
+  468|      0|    }
+  469|       |
+  470|      6|    if (tx->payload.entry_function.module_id.address[ADDRESS_LEN - 1] == 0x01 &&
+  ------------------
+  |  |   11|      6|#define ADDRESS_LEN 32
+  ------------------
+  |  Branch (470:9): [True: 5, False: 1]
+  ------------------
+  471|      6|        bcs_cmp_bytes(&tx->payload.entry_function.module_id.name, "aptos_account", 13) &&
+  ------------------
+  |  Branch (471:9): [True: 1, False: 4]
+  ------------------
+  472|      6|        bcs_cmp_bytes(&tx->payload.entry_function.function_name, "transfer_coins", 14)) {
+  ------------------
+  |  Branch (472:9): [True: 0, False: 1]
+  ------------------
+  473|      0|        return FUNC_APTOS_ACCOUNT_TRANSFER_COINS;
+  474|      0|    }
+  475|       |
+  476|      6|    if (tx->payload.entry_function.module_id.address[ADDRESS_LEN - 1] == 0x01 &&
+  ------------------
+  |  |   11|      6|#define ADDRESS_LEN 32
+  ------------------
+  |  Branch (476:9): [True: 5, False: 1]
+  ------------------
+  477|      6|        bcs_cmp_bytes(&tx->payload.entry_function.module_id.name, "primary_fungible_store", 22) &&
+  ------------------
+  |  Branch (477:9): [True: 1, False: 4]
+  ------------------
+  478|      6|        bcs_cmp_bytes(&tx->payload.entry_function.function_name, "transfer", 8)) {
+  ------------------
+  |  Branch (478:9): [True: 0, False: 1]
+  ------------------
+  479|      0|        return FUNC_FUNGIBLE_STORE_TRANSFER;
+  480|      0|    }
+  481|       |
+  482|      6|    return FUNC_UNKNOWN;
+  483|      6|}
+
+transaction_utils_check_encoding:
+   25|     11|bool transaction_utils_check_encoding(const uint8_t *msg, uint64_t msg_len) {
+   26|  1.22k|    for (uint64_t i = 0; i < msg_len; i++) {
+  ------------------
+  |  Branch (26:26): [True: 1.21k, False: 10]
+  ------------------
+   27|  1.21k|        if (msg[i] > 0x7F) {
+  ------------------
+  |  Branch (27:13): [True: 1, False: 1.21k]
+  ------------------
+   28|      1|            return false;
+   29|      1|        }
+   30|  1.21k|    }
+   31|       |
+   32|     10|    return true;
+   33|     11|}
+bcs_cmp_bytes:
+   35|     23|bool bcs_cmp_bytes(const fixed_bytes_t *bcs_bytes, const void *value, size_t len) {
+   36|     23|    return bcs_bytes->len == len && memcmp(bcs_bytes->bytes, value, len) == 0;
+  ------------------
+  |  Branch (36:12): [True: 6, False: 17]
+  |  Branch (36:37): [True: 3, False: 3]
+  ------------------
+   37|     23|}
+
